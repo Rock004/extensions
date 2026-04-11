@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X 翻译助手设置</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        width: 360px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #000;
+        color: #e7e9ea;
+      }
+
+      .header {
+        padding: 20px;
+        border-bottom: 1px solid #2f3336;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo {
+        width: 36px;
+        height: 36px;
+        background: #1d9bf0;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      }
+
+      .header-text h1 {
+        font-size: 16px;
+        font-weight: 700;
+        color: #e7e9ea;
+      }
+
+      .header-text p {
+        font-size: 12px;
+        color: #71767b;
+        margin-top: 2px;
+      }
+
+      .content {
+        padding: 20px;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: #e7e9ea;
+        margin-bottom: 8px;
+      }
+
+      .hint {
+        font-size: 11px;
+        color: #71767b;
+        margin-bottom: 10px;
+      }
+
+      .hint a {
+        color: #1d9bf0;
+        text-decoration: none;
+      }
+
+      input[type='password'],
+      input[type='text'],
+      select {
+        width: 100%;
+        padding: 10px 14px;
+        background: #16181c;
+        border: 1px solid #2f3336;
+        border-radius: 8px;
+        color: #e7e9ea;
+        font-size: 13px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      input:focus,
+      select:focus {
+        border-color: #1d9bf0;
+      }
+
+      select {
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371767b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 32px;
+      }
+
+      .input-row {
+        position: relative;
+      }
+
+      .toggle-visibility {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #71767b;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px;
+      }
+
+      .model-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .model-row select {
+        flex: 1;
+      }
+
+      .model-hint {
+        font-size: 11px;
+        color: #555a5e;
+        margin-top: 4px;
+        margin-bottom: 10px;
+      }
+
+      .save-btn {
+        width: 100%;
+        padding: 11px;
+        margin-top: 16px;
+        background: #1d9bf0;
+        color: white;
+        border: none;
+        border-radius: 24px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .save-btn:hover {
+        background: #1a8cd8;
+      }
+      .save-btn:active {
+        background: #1679b5;
+      }
+
+      .status {
+        margin-top: 10px;
+        font-size: 12px;
+        text-align: center;
+        min-height: 18px;
+        color: #00ba7c;
+      }
+
+      .status.error {
+        color: #f4212e;
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid #2f3336;
+        margin: 20px 0;
+      }
+
+      .how-to h3 {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: #e7e9ea;
+      }
+
+      .steps {
+        list-style: none;
+        counter-reset: steps;
+      }
+
+      .steps li {
+        counter-increment: steps;
+        font-size: 12px;
+        color: #71767b;
+        padding: 5px 0;
+        padding-left: 24px;
+        position: relative;
+      }
+
+      .steps li::before {
+        content: counter(steps);
+        position: absolute;
+        left: 0;
+        width: 16px;
+        height: 16px;
+        background: #1d9bf0;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        top: 6px;
+      }
+
+      .badge {
+        display: inline-block;
+        background: #1d9bf0;
+        color: white;
+        border-radius: 10px;
+        padding: 1px 7px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .provider-badge {
+        font-size: 11px;
+        color: #71767b;
+        margin-bottom: 10px;
+        line-height: 1.6;
+      }
+
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 40px;
+        height: 22px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        inset: 0;
+        background: #2f3336;
+        border-radius: 22px;
+        cursor: pointer;
+        transition: 0.3s;
+      }
+      .slider::before {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 3px;
+        top: 3px;
+        background: #71767b;
+        border-radius: 50%;
+        transition: 0.3s;
+      }
+      input:checked + .slider {
+        background: #1d9bf0;
+      }
+      input:checked + .slider::before {
+        transform: translateX(18px);
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="logo">🌐</div>
+      <div class="header-text">
+        <h1>X 翻译助手</h1>
+        <p id="providerLabel">中文 → English · 由 Claude AI 驱动</p>
+      </div>
+    </div>
+
+    <div class="content">
+      <label for="provider">模型提供商</label>
+      <select id="provider">
+        <option value="anthropic">Claude (Anthropic)</option>
+        <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="bailian">百炼 (阿里云)</option>
+        <option value="openai">OpenAI 兼容 (自定义)</option>
+      </select>
+      <p class="model-hint" id="providerHint">Key 前缀要求: sk-ant-</p>
+
+      <label for="model" style="margin-top: 12px">模型</label>
+      <div class="model-row">
+        <select id="model"></select>
+      </div>
+      <p class="model-hint" id="modelHint">
+        默认模型: claude-sonnet-4-20250514
+      </p>
+
+      <label for="apiKey" style="margin-top: 12px">API Key</label>
+      <div class="input-row">
+        <input
+          type="password"
+          id="apiKey"
+          placeholder="sk-ant-api03-..."
+          autocomplete="off"
+        />
+        <button class="toggle-visibility" id="toggleKey" title="显示/隐藏">
+          👁
+        </button>
+      </div>
+
+      <label for="apiUrl" style="margin-top: 12px">API 地址</label>
+      <input
+        type="text"
+        id="apiUrl"
+        readonly
+        style="color: #71767b; cursor: default"
+      />
+
+      <div
+        style="
+          margin-top: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        "
+      >
+        <label for="autoTranslate" style="margin: 0; cursor: pointer"
+          >自动翻译</label
+        >
+        <label class="switch">
+          <input type="checkbox" id="autoTranslate" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="model-hint" style="margin-top: 4px">
+        开启后，输入中文 1.5 秒自动翻译
+      </p>
+
+      <button class="save-btn" id="saveBtn">保存设置</button>
+      <div class="status" id="status"></div>
+
+      <hr class="divider" />
+
+      <div class="how-to">
+        <h3>使用方法</h3>
+        <ol class="steps">
+          <li>在 X 上点击回复或发推</li>
+          <li>输入你的中文内容</li>
+          <li>点击工具栏中的 <span class="badge">中→EN</span> 按钮</li>
+          <li>内容自动替换为英文 ✓</li>
+        </ol>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
