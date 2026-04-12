@@ -1258,27 +1258,41 @@ if (ACTIVE_SITE === 'reddit') {
 
   function pollRedditEditors() {
     const editors = scanRedditEditors()
-    let newEditorFound = false
     for (const editor of editors) {
-      if (!boundEditors.has(editor) && !redditFoundEditors.has(editor)) {
+      if (!redditFoundEditors.has(editor)) {
         redditFoundEditors.add(editor)
         prepareEditor(editor, 100)
-        newEditorFound = true
       }
     }
-    // 如果找到了新编辑器，不需要继续高频轮询
-    // 但保留低频轮询以捕获后续新出现的编辑器
   }
 
   // 每 1.5 秒轮询一次
   redditPollTimer = setInterval(pollRedditEditors, 1500)
 
-  // 同时监听 focus 事件：当用户点击到 textarea 时，立即尝试注入
-  document.addEventListener('focusin', (e) => {
-    if (e.target?.tagName === 'TEXTAREA' && ACTIVE_SITE === 'reddit') {
-      if (!boundEditors.has(e.target)) {
-        prepareEditor(e.target, 0)
-      }
-    }
-  }, true)
+  // 【最可靠的路径】监听 focusin 事件：当用户点击 textarea 时，立即注入
+  // 这是最可靠的，因为用户必须点击才能输入，此时 shadow DOM 一定已渲染
+  document.addEventListener(
+    'focusin',
+    (e) => {
+      if (!e.target || e.target.tagName !== 'TEXTAREA') return
+      const ta = e.target
+      if (boundEditors.has(ta)) return
+      if (shouldIgnoreEditor(ta)) return
+      prepareEditor(ta, 0)
+    },
+    true
+  )
+
+  // 同时监听 input 事件（兜底：有些 textarea 可能在脚本执行时就已存在）
+  document.addEventListener(
+    'input',
+    (e) => {
+      if (!e.target || e.target.tagName !== 'TEXTAREA') return
+      const ta = e.target
+      if (boundEditors.has(ta)) return
+      if (shouldIgnoreEditor(ta)) return
+      prepareEditor(ta, 0)
+    },
+    true
+  )
 }
