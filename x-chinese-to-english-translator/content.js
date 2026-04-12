@@ -20,10 +20,16 @@ const SITE_CONFIG = {
     ].join(', '),
     // shadow DOM 内部选择器：只用简单选择器，因为 shadow root 内没有 faceplate-textarea-input 等宿主元素
     shadowDomSelector: 'textarea:not([readonly]):not([disabled])'
+  },
+  youtube: {
+    editorSelector:
+      '#contenteditable-root, [contenteditable="true"][role="textbox"], [contenteditable="true"]'
   }
 }
 const ACTIVE_SITE = window.location.hostname.endsWith('reddit.com')
   ? 'reddit'
+  : window.location.hostname.endsWith('youtube.com')
+  ? 'youtube'
   : 'x'
 const ACTIVE_SITE_CONFIG = SITE_CONFIG[ACTIVE_SITE] || SITE_CONFIG.x
 

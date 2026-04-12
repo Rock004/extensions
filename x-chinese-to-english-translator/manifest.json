@@ -21,7 +21,9 @@
         "https://x.com/*",
         "https://twitter.com/*",
         "https://www.reddit.com/*",
-        "https://reddit.com/*"
+        "https://reddit.com/*",
+        "https://www.youtube.com/*",
+        "https://youtube.com/*"
       ],
       "js": ["content.js"],
       "css": ["styles.css"]
