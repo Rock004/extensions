@@ -2,11 +2,120 @@
 
 const CHINESE_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/
 const TRANSLATOR_UI_SELECTOR = '[data-x-translator-root="true"]'
+const SITE_CONFIG = {
+  x: {
+    editorSelector:
+      '[data-testid="tweetTextarea_0"], [contenteditable="true"][role="textbox"]'
+  },
+  reddit: {
+    // light DOM 选择器：匹配直接出现在文档流中的 textarea
+    lightDomSelector: [
+      'textarea[name="text"]',
+      'textarea[placeholder*="comment" i]',
+      'textarea[placeholder*="reply" i]',
+      'textarea[placeholder*="post" i]',
+      'textarea[placeholder*="title" i]',
+      'textarea[aria-label*="comment" i]',
+      'textarea[aria-label*="reply" i]'
+    ].join(', '),
+    // shadow DOM 内部选择器：只用简单选择器，因为 shadow root 内没有 faceplate-textarea-input 等宿主元素
+    shadowDomSelector: 'textarea:not([readonly]):not([disabled])'
+  }
+}
+const ACTIVE_SITE = window.location.hostname.endsWith('reddit.com')
+  ? 'reddit'
+  : 'x'
+const ACTIVE_SITE_CONFIG = SITE_CONFIG[ACTIVE_SITE] || SITE_CONFIG.x
+
+// 注入 CSS 到 shadow root（content script 的 CSS 不会穿透 shadow boundary）
+let injectedStylesheets = new WeakSet()
+let cachedCSS = null
+
+async function loadCSSContent() {
+  if (cachedCSS) return cachedCSS
+  try {
+    const cssURL = chrome.runtime.getURL('styles.css')
+    const resp = await fetch(cssURL)
+    cachedCSS = await resp.text()
+  } catch {
+    cachedCSS = ''
+  }
+  return cachedCSS
+}
+
+async function injectStylesIntoShadowRoot(shadowRoot) {
+  if (!shadowRoot || injectedStylesheets.has(shadowRoot)) return
+
+  const css = await loadCSSContent()
+  if (!css) return
+
+  const style = document.createElement('style')
+  style.textContent = css
+  shadowRoot.prepend(style)
+  injectedStylesheets.add(shadowRoot)
+}
+
+// 递归查找 Reddit 编辑器（包括所有 shadow root 内的 textarea）
+function scanRedditEditors() {
+  const editors = []
+  const config = SITE_CONFIG.reddit
+  const visitedRoots = new WeakSet()
+
+  function scanRoot(root) {
+    if (!root?.querySelectorAll || visitedRoots.has(root)) return
+    visitedRoots.add(root)
+
+    // 在 shadow root 内部用简单选择器查找 textarea
+    const shadowMatches = root.querySelectorAll(config.shadowDomSelector)
+    for (const textarea of shadowMatches) {
+      if (!shouldIgnoreEditor(textarea)) {
+        editors.push(textarea)
+        // 如果 textarea 本身有 shadow root（不太可能，但以防万一），继续深入
+        if (textarea.shadowRoot) {
+          scanRoot(textarea.shadowRoot)
+        }
+      }
+    }
+
+    // 查找嵌套的 shadow root
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) {
+        scanRoot(el.shadowRoot)
+        // 在 light DOM 中也可能有 textarea（非 shadow DOM 包裹的）
+        if (el.shadowRoot !== root) {
+          // light DOM textarea 检查
+          const lightMatches = el.shadowRoot.querySelectorAll(config.lightDomSelector)
+          for (const textarea of lightMatches) {
+            if (!shouldIgnoreEditor(textarea) && !editors.includes(textarea)) {
+              editors.push(textarea)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 先扫描 light DOM
+  const lightEditors = document.querySelectorAll(config.lightDomSelector)
+  for (const editor of lightEditors) {
+    if (!shouldIgnoreEditor(editor)) {
+      editors.push(editor)
+    }
+  }
+
+  // 再递归扫描所有 shadow root
+  scanRoot(document)
+
+  // 去重
+  const uniqueEditors = [...new Set(editors)]
+  return uniqueEditors
+}
 
 let currentEditor = null
 let isTranslating = false
 let autoTranslateTimer = null
 let buttonDoneTimer = null
+let fullScanTimer = null
 const lastTranslatedSourceByEditor = new WeakMap()
 
 // 各提供商的 API 配置
@@ -44,9 +153,89 @@ function containsChinese(text) {
   return CHINESE_REGEX.test(text)
 }
 
+function isTextareaEditor(editor) {
+  return editor instanceof HTMLTextAreaElement
+}
+
+function getEditorAnchor(editor) {
+  const rootNode = editor?.getRootNode?.()
+  return rootNode instanceof ShadowRoot ? rootNode.host : editor
+}
+
+function getClassNameText(value) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value.baseVal === 'string') return value.baseVal
+  return String(value)
+}
+
+function isElementVisible(element) {
+  if (!element) return false
+
+  const rect = element.getBoundingClientRect?.()
+  const style = window.getComputedStyle?.(element)
+
+  if (!rect || !style) return false
+  if (style.display === 'none' || style.visibility === 'hidden') return false
+
+  return rect.width > 0 && rect.height > 0
+}
+
+function getEditorMetaText(editor) {
+  const anchor = getEditorAnchor(editor)
+
+  return [
+    editor.getAttribute?.('placeholder') || '',
+    editor.getAttribute?.('aria-label') || '',
+    editor.getAttribute?.('name') || '',
+    editor.id || '',
+    getClassNameText(editor.className),
+    anchor?.getAttribute?.('placeholder') || '',
+    anchor?.getAttribute?.('aria-label') || '',
+    anchor?.getAttribute?.('name') || '',
+    anchor?.id || '',
+    getClassNameText(anchor?.className),
+    anchor?.tagName || ''
+  ]
+    .join(' ')
+    .toLowerCase()
+}
+
+function shouldIgnoreEditor(editor) {
+  const anchor = getEditorAnchor(editor)
+
+  if (!editor || editor.closest?.(TRANSLATOR_UI_SELECTOR)) return true
+  if (anchor?.closest?.(TRANSLATOR_UI_SELECTOR)) return true
+  if (!isElementVisible(editor) && !isElementVisible(anchor)) return true
+
+  const metaText = getEditorMetaText(editor)
+  if (/(search|搜索|query)/.test(metaText)) return true
+
+  if (ACTIVE_SITE === 'reddit') {
+    const redditContainer = anchor?.closest(
+      'form, shreddit-comment-composer, shreddit-composer, faceplate-textarea-input, [slot*="composer"], [data-testid*="comment"], [data-testid*="composer"], [id*="comment"], [id*="composer"]'
+    )
+
+    if (
+      !redditContainer &&
+      !/(comment|reply|post|title|text|body|commentcomposer|textarea)/.test(
+        metaText
+      )
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
 // 获取编辑器的文本内容
 function getEditorText(editor) {
   if (!editor) return ''
+
+  if (isTextareaEditor(editor)) {
+    return editor.value || ''
+  }
 
   if (!editor.querySelector(TRANSLATOR_UI_SELECTOR)) {
     return editor.innerText || editor.textContent || ''
@@ -64,7 +253,7 @@ function isTranslatorUiNode(node) {
 }
 
 function cleanupInjectedUi(editor) {
-  if (!editor?.querySelectorAll) return
+  if (!editor?.querySelectorAll || isTextareaEditor(editor)) return
 
   editor
     .querySelectorAll(TRANSLATOR_UI_SELECTOR)
@@ -72,6 +261,8 @@ function cleanupInjectedUi(editor) {
 }
 
 function getTextNodes(editor) {
+  if (isTextareaEditor(editor)) return []
+
   const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (isTranslatorUiNode(node)) {
@@ -94,6 +285,8 @@ function getTextNodes(editor) {
 }
 
 function ensureTextNode(editor) {
+  if (isTextareaEditor(editor)) return null
+
   const textNodes = getTextNodes(editor)
   if (textNodes.length > 0) return textNodes[0]
 
@@ -103,6 +296,12 @@ function ensureTextNode(editor) {
 }
 
 function placeCaretAtEnd(editor) {
+  if (isTextareaEditor(editor)) {
+    const end = editor.value.length
+    editor.setSelectionRange(end, end)
+    return
+  }
+
   const selection = window.getSelection()
   if (!selection) return
 
@@ -151,6 +350,19 @@ function restoreEditorFocus(editor) {
 }
 
 function dispatchEditorInput(editor, text) {
+  if (isTextareaEditor(editor)) {
+    editor.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertReplacementText',
+        data: text
+      })
+    )
+    editor.dispatchEvent(new Event('change', { bubbles: true }))
+    return
+  }
+
   editor.dispatchEvent(
     new InputEvent('beforeinput', {
       bubbles: true,
@@ -171,6 +383,22 @@ function dispatchEditorInput(editor, text) {
 }
 
 function replaceEditorTextPreservingNodes(editor, text) {
+  if (isTextareaEditor(editor)) {
+    const prototype = Object.getPrototypeOf(editor)
+    const valueSetter =
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set ||
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set
+
+    if (valueSetter) {
+      valueSetter.call(editor, text)
+    } else {
+      editor.value = text
+    }
+
+    return editor
+  }
+
   const textNodes = getTextNodes(editor)
 
   if (textNodes.length === 0) {
@@ -202,6 +430,13 @@ function setEditorText(editor, text) {
 
   const currentText = getEditorText(editor).trim()
   if (currentText === text.trim()) {
+    dispatchEditorInput(editor, text)
+    return
+  }
+
+  if (isTextareaEditor(editor)) {
+    replaceEditorTextPreservingNodes(editor, text)
+    restoreEditorFocus(editor)
     dispatchEditorInput(editor, text)
     return
   }
@@ -581,8 +816,84 @@ function createTranslateButton(editor) {
   return btn
 }
 
+function findRedditToolbar(editor) {
+  const anchor = getEditorAnchor(editor)
+  const root =
+    anchor.closest(
+      'form, shreddit-comment-composer, shreddit-composer, faceplate-textarea-input, [slot*="composer"], [data-testid*="comment"], [data-testid*="composer"], [id*="comment"], [id*="composer"]'
+    ) ||
+    anchor.parentElement ||
+    anchor
+
+  if (!root) return null
+
+  const actionButtonRow = Array.from(root.querySelectorAll('button')).find(
+    (button) => {
+      const text = button.textContent?.trim() || ''
+      return /(comment|reply|cancel|post|评论|回复|取消|发布)/i.test(text)
+    }
+  )?.parentElement
+
+  if (
+    actionButtonRow &&
+    !actionButtonRow.contains(anchor) &&
+    actionButtonRow.querySelectorAll('button').length >= 1
+  ) {
+    return actionButtonRow
+  }
+
+  const directSelectors = [
+    '[role="toolbar"]',
+    '[slot="footer"]',
+    '[slot="actions"]',
+    '[slot="actionRow"]',
+    '[slot="button-row"]',
+    '[data-testid*="footer"]',
+    '[data-testid*="actions"]'
+  ]
+
+  for (const selector of directSelectors) {
+    const match = root.querySelector(selector)
+    if (match && !match.contains(editor)) {
+      return match
+    }
+  }
+
+  const editorRect = editor.getBoundingClientRect()
+  const candidates = root.querySelectorAll('div, footer, section, nav')
+  for (const candidate of candidates) {
+    if (candidate === anchor || candidate.contains(anchor)) continue
+    if (candidate.closest(TRANSLATOR_UI_SELECTOR)) continue
+
+    const buttons = candidate.querySelectorAll('button')
+    if (buttons.length === 0) continue
+
+    const rect = candidate.getBoundingClientRect()
+    const isNearEditor =
+      rect.top <= editorRect.bottom + 220 && rect.bottom >= editorRect.top - 80
+
+    if (isNearEditor) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
 function findFloatingContainer(editor) {
-  let container = editor.parentElement
+  const anchor = getEditorAnchor(editor)
+
+  if (ACTIVE_SITE === 'reddit') {
+    return (
+      anchor.closest(
+        'faceplate-textarea-input, shreddit-comment-composer, shreddit-composer, form, [slot*="composer"], [data-testid*="comment"], [data-testid*="composer"], [id*="comment"], [id*="composer"]'
+      ) ||
+      anchor.parentElement ||
+      anchor
+    )
+  }
+
+  let container = anchor.parentElement
 
   while (container && container !== document.body) {
     if (!container.isContentEditable) {
@@ -591,12 +902,14 @@ function findFloatingContainer(editor) {
     container = container.parentElement
   }
 
-  return editor.parentElement || editor
+  return anchor.parentElement || anchor
 }
 
 // 将按钮插入到工具栏
 function injectButtonIntoToolbar(editor) {
-  if (!editor || !editor.parentElement) return
+  const anchor = getEditorAnchor(editor)
+
+  if (!editor || !anchor || shouldIgnoreEditor(editor)) return
   cleanupInjectedUi(editor)
 
   // 避免重复添加
@@ -604,11 +917,25 @@ function injectButtonIntoToolbar(editor) {
 
   currentEditor = editor
 
+  if (ACTIVE_SITE === 'reddit') {
+    const redditToolbar = findRedditToolbar(editor)
+    if (redditToolbar) {
+      // 注入 CSS 到 shadow root（如果工具栏在 shadow DOM 内）
+      const shadowRoot = redditToolbar.getRootNode?.()
+      if (shadowRoot instanceof ShadowRoot) {
+        injectStylesIntoShadowRoot(shadowRoot)
+      }
+      const btn = createTranslateButton(editor)
+      redditToolbar.insertBefore(btn, redditToolbar.firstChild)
+      return
+    }
+  }
+
   // 策略 1: 查找 [role="toolbar"]
   const root =
-    editor.closest('div[data-testid*="tweetTextarea"]') ||
-    editor.closest('div[contenteditable="true"]')?.parentElement ||
-    editor.parentElement
+    anchor.closest('div[data-testid*="tweetTextarea"]') ||
+    anchor.closest('div[contenteditable="true"]')?.parentElement ||
+    anchor.parentElement
 
   if (root) {
     const toolbar =
@@ -696,7 +1023,15 @@ function attachFloatingButton(editor) {
     container.style.position = 'relative'
   }
 
-  ;(container || editor.parentElement).appendChild(wrapper)
+  const targetContainer = container || editor.parentElement
+
+  // 如果容器在 shadow DOM 内，注入 CSS
+  const shadowRoot = targetContainer?.getRootNode?.()
+  if (shadowRoot instanceof ShadowRoot) {
+    injectStylesIntoShadowRoot(shadowRoot)
+  }
+
+  targetContainer.appendChild(wrapper)
 }
 
 // 防抖自动翻译
@@ -760,18 +1095,81 @@ function bindEditorEvents(editor) {
   })
 }
 
-const EDITOR_SELECTOR =
-  '[data-testid="tweetTextarea_0"], [contenteditable="true"][role="textbox"]'
+const EDITOR_SELECTOR = ACTIVE_SITE_CONFIG.editorSelector || ACTIVE_SITE_CONFIG.lightDomSelector
+
+function getAllSearchRoots() {
+  const roots = new Set([document])
+  const pendingRoots = [document]
+
+  while (pendingRoots.length > 0) {
+    const currentRoot = pendingRoots.pop()
+    if (!currentRoot?.querySelectorAll) continue
+
+    for (const element of currentRoot.querySelectorAll('*')) {
+      if (element.shadowRoot && !roots.has(element.shadowRoot)) {
+        roots.add(element.shadowRoot)
+        pendingRoots.push(element.shadowRoot)
+      }
+    }
+  }
+
+  return Array.from(roots)
+}
+
+function scanAllEditors(delay = 0) {
+  // Reddit 使用专用的 shadow DOM 扫描
+  if (ACTIVE_SITE === 'reddit') {
+    const editors = scanRedditEditors()
+    editors.forEach((editor) => prepareEditor(editor, delay))
+    return
+  }
+
+  for (const root of getAllSearchRoots()) {
+    if (!root.querySelectorAll) continue
+
+    root.querySelectorAll(EDITOR_SELECTOR).forEach((editor) => {
+      if (!shouldIgnoreEditor(editor)) {
+        prepareEditor(editor, delay)
+      }
+    })
+  }
+}
+
+function scheduleFullEditorScan(delay = 180) {
+  clearTimeout(fullScanTimer)
+  fullScanTimer = setTimeout(() => {
+    scanAllEditors(0)
+  }, delay)
+}
 
 function getEditorsFromNode(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE) return []
 
   const editors = []
+
+  // Reddit: 检查节点是否是 shadow root 宿主，如果是则扫描其 shadow DOM
+  if (ACTIVE_SITE === 'reddit' && node.shadowRoot) {
+    const shadowEditors = node.shadowRoot.querySelectorAll(
+      SITE_CONFIG.reddit.shadowDomSelector
+    )
+    for (const editor of shadowEditors) {
+      if (!shouldIgnoreEditor(editor)) {
+        editors.push(editor)
+      }
+    }
+  }
+
   if (node.matches && node.matches(EDITOR_SELECTOR)) {
-    editors.push(node)
+    if (!shouldIgnoreEditor(node)) {
+      editors.push(node)
+    }
   }
   if (node.querySelectorAll) {
-    editors.push(...node.querySelectorAll(EDITOR_SELECTOR))
+    editors.push(
+      ...Array.from(node.querySelectorAll(EDITOR_SELECTOR)).filter(
+        (editor) => !shouldIgnoreEditor(editor)
+      )
+    )
   }
   return editors
 }
@@ -791,7 +1189,15 @@ const observer = new MutationObserver((mutations) => {
       for (const editor of getEditorsFromNode(node)) {
         prepareEditor(editor, 300)
       }
+
+      if (node.nodeType === Node.ELEMENT_NODE && node.shadowRoot) {
+        scheduleFullEditorScan(60)
+      }
     }
+  }
+
+  if (ACTIVE_SITE === 'reddit') {
+    scheduleFullEditorScan(120)
   }
 })
 
@@ -801,6 +1207,4 @@ observer.observe(document.body, {
 })
 
 // 初始检查（页面已加载时）
-document.querySelectorAll(EDITOR_SELECTOR).forEach((editor) => {
-  prepareEditor(editor, 500)
-})
+scanAllEditors(500)

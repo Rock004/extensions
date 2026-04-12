@@ -1,15 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "X 中文转英文翻译助手",
+  "name": "社交平台中文转英文翻译助手",
   "version": "1.0",
-  "description": "在 X (Twitter) 上回复时，自动将中文翻译为英文",
-  "permissions": [
-    "activeTab",
-    "storage"
-  ],
+  "description": "在 X、Twitter 和 Reddit 上发帖或回复时，自动将中文翻译为英文",
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
+    "https://www.reddit.com/*",
+    "https://reddit.com/*",
     "https://api.anthropic.com/*",
     "https://api.siliconflow.cn/*",
     "https://api.deepseek.com/*",
@@ -18,9 +17,20 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://www.reddit.com/*",
+        "https://reddit.com/*"
+      ],
       "js": ["content.js"],
       "css": ["styles.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["styles.css"],
+      "matches": ["https://www.reddit.com/*", "https://reddit.com/*"]
     }
   ],
   "action": {
