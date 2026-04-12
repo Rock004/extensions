@@ -470,6 +470,40 @@ function replaceEditorTextPreservingNodes(editor, text) {
 
 // 设置编辑器文本（兼容 Draft.js / contentEditable）
 function setEditorText(editor, text) {
+  // ====== textarea 专用路径（Reddit 等）======
+  if (isTextareaEditor(editor)) {
+    editor.focus()
+
+    // 直接设置 value
+    const prototype = Object.getPrototypeOf(editor)
+    const valueSetter =
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set ||
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+
+    if (valueSetter) {
+      valueSetter.call(editor, text)
+    } else {
+      editor.value = text
+    }
+
+    // 设置光标到末尾
+    const end = editor.value.length
+    editor.setSelectionRange(end, end)
+
+    // 触发 input 事件让 React 感知变化
+    editor.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: text
+      })
+    )
+    editor.dispatchEvent(new Event('change', { bubbles: true }))
+    return
+  }
+
+  // ====== contentEditable 路径（X/Twitter）======
   editor.focus()
   cleanupInjectedUi(editor)
 
@@ -479,13 +513,6 @@ function setEditorText(editor, text) {
 
   const currentText = getEditorText(editor).trim()
   if (currentText === text.trim()) {
-    dispatchEditorInput(editor, text)
-    return
-  }
-
-  if (isTextareaEditor(editor)) {
-    replaceEditorTextPreservingNodes(editor, text)
-    restoreEditorFocus(editor)
     dispatchEditorInput(editor, text)
     return
   }
