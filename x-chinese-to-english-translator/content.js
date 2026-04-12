@@ -107,15 +107,18 @@ let redditPositionObserver = null
 function positionRedditButton(editor) {
   if (!redditButtonWrapper) return
 
-  const rect = editor.getBoundingClientRect()
-  if (rect.width === 0 || rect.height === 0) {
-    redditButtonWrapper.style.display = 'none'
-    return
-  }
-
   redditButtonWrapper.style.display = 'flex'
-  redditButtonWrapper.style.left = `${rect.right + 12}px`
-  redditButtonWrapper.style.top = `${rect.top + rect.height / 2 - 17}px`
+  const rect = editor.getBoundingClientRect()
+  if (rect.width > 0 && rect.height > 0) {
+    redditButtonWrapper.style.left = `${rect.right + 12}px`
+    redditButtonWrapper.style.top = `${rect.top + rect.height / 2 - 17}px`
+  } else {
+    // textarea 可能不可见，固定在屏幕右下角
+    redditButtonWrapper.style.right = '16px'
+    redditButtonWrapper.style.left = 'auto'
+    redditButtonWrapper.style.top = 'auto'
+    redditButtonWrapper.style.bottom = '16px'
+  }
 }
 
 function setupRedditButtonPosition(editor) {
@@ -155,7 +158,6 @@ function createRedditButtonWrapper(editor) {
 
   document.body.appendChild(wrapper)
   redditButtonWrapper = wrapper
-  console.log('[翻译] 按钮已添加到 document.body')
 
   setupRedditButtonPosition(editor)
   positionRedditButton(editor)
@@ -1245,9 +1247,7 @@ function getEditorsFromNode(node) {
 }
 
 function prepareEditor(editor, delay) {
-  console.log('[翻译] prepareEditor 调用，delay:', delay, 'type:', editor.tagName, 'value:', (editor.value || '').substring(0, 30))
   setTimeout(() => {
-    console.log('[翻译] 尝试注入按钮')
     injectButtonIntoToolbar(editor)
     syncButtonState(editor)
   }, delay)
@@ -1283,18 +1283,14 @@ scanAllEditors(500)
 
 // Reddit: 轮询后备方案（MutationObserver 可能错过 shadow DOM 中的元素）
 if (ACTIVE_SITE === 'reddit') {
-  console.log('[翻译] Reddit 模式已激活')
-
   let redditPollTimer = null
   let redditFoundEditors = new WeakSet()
 
   function pollRedditEditors() {
     const editors = scanRedditEditors()
-    console.log('[翻译] 轮询扫描，找到', editors.length, '个编辑器')
     for (const editor of editors) {
       if (!redditFoundEditors.has(editor)) {
         redditFoundEditors.add(editor)
-        console.log('[翻译] 准备编辑器，textarea visible:', editor.getBoundingClientRect().width > 0)
         prepareEditor(editor, 100)
       }
     }
