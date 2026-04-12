@@ -155,6 +155,7 @@ function createRedditButtonWrapper(editor) {
 
   document.body.appendChild(wrapper)
   redditButtonWrapper = wrapper
+  console.log('[翻译] 按钮已添加到 document.body')
 
   setupRedditButtonPosition(editor)
   positionRedditButton(editor)
@@ -1244,7 +1245,9 @@ function getEditorsFromNode(node) {
 }
 
 function prepareEditor(editor, delay) {
+  console.log('[翻译] prepareEditor 调用，delay:', delay, 'type:', editor.tagName, 'value:', (editor.value || '').substring(0, 30))
   setTimeout(() => {
+    console.log('[翻译] 尝试注入按钮')
     injectButtonIntoToolbar(editor)
     syncButtonState(editor)
   }, delay)
@@ -1280,14 +1283,18 @@ scanAllEditors(500)
 
 // Reddit: 轮询后备方案（MutationObserver 可能错过 shadow DOM 中的元素）
 if (ACTIVE_SITE === 'reddit') {
+  console.log('[翻译] Reddit 模式已激活')
+
   let redditPollTimer = null
   let redditFoundEditors = new WeakSet()
 
   function pollRedditEditors() {
     const editors = scanRedditEditors()
+    console.log('[翻译] 轮询扫描，找到', editors.length, '个编辑器')
     for (const editor of editors) {
       if (!redditFoundEditors.has(editor)) {
         redditFoundEditors.add(editor)
+        console.log('[翻译] 准备编辑器，textarea visible:', editor.getBoundingClientRect().width > 0)
         prepareEditor(editor, 100)
       }
     }
