@@ -55,60 +55,109 @@ async function injectStylesIntoShadowRoot(shadowRoot) {
   injectedStylesheets.add(shadowRoot)
 }
 
-// 递归查找 Reddit 编辑器（包括所有 shadow root 内的 textarea）
-function scanRedditEditors() {
-  const editors = []
+// 递归查找所有 shadow root 中的 textarea
+// 从 document 开始，递归进入每个发现的 shadow root
+function collectRedditEditors(root, collected, visited) {
+  if (!root?.querySelectorAll || visited.has(root)) return
+  visited.add(root)
+
   const config = SITE_CONFIG.reddit
-  const visitedRoots = new WeakSet()
 
-  function scanRoot(root) {
-    if (!root?.querySelectorAll || visitedRoots.has(root)) return
-    visitedRoots.add(root)
-
-    // 在 shadow root 内部用简单选择器查找 textarea
-    const shadowMatches = root.querySelectorAll(config.shadowDomSelector)
-    for (const textarea of shadowMatches) {
-      if (!shouldIgnoreEditor(textarea)) {
-        editors.push(textarea)
-        // 如果 textarea 本身有 shadow root（不太可能，但以防万一），继续深入
-        if (textarea.shadowRoot) {
-          scanRoot(textarea.shadowRoot)
-        }
-      }
-    }
-
-    // 查找嵌套的 shadow root
-    for (const el of root.querySelectorAll('*')) {
-      if (el.shadowRoot) {
-        scanRoot(el.shadowRoot)
-        // 在 light DOM 中也可能有 textarea（非 shadow DOM 包裹的）
-        if (el.shadowRoot !== root) {
-          // light DOM textarea 检查
-          const lightMatches = el.shadowRoot.querySelectorAll(config.lightDomSelector)
-          for (const textarea of lightMatches) {
-            if (!shouldIgnoreEditor(textarea) && !editors.includes(textarea)) {
-              editors.push(textarea)
-            }
-          }
-        }
-      }
+  // 在当前 root 中查找 textarea
+  const textareas = root.querySelectorAll(config.shadowDomSelector)
+  for (const ta of textareas) {
+    if (!shouldIgnoreEditor(ta) && !collected.has(ta)) {
+      collected.add(ta)
     }
   }
 
-  // 先扫描 light DOM
-  const lightEditors = document.querySelectorAll(config.lightDomSelector)
-  for (const editor of lightEditors) {
-    if (!shouldIgnoreEditor(editor)) {
-      editors.push(editor)
+  // 递归进入所有 shadow root
+  const allElements = root.querySelectorAll('*')
+  for (const el of allElements) {
+    if (el.shadowRoot) {
+      collectRedditEditors(el.shadowRoot, collected, visited)
+    }
+  }
+}
+
+function scanRedditEditors() {
+  const collected = new Set()
+  const visited = new WeakSet()
+
+  // 1. 先扫 light DOM
+  const lightEditors = document.querySelectorAll(
+    SITE_CONFIG.reddit.lightDomSelector
+  )
+  for (const ta of lightEditors) {
+    if (!shouldIgnoreEditor(ta) && !collected.has(ta)) {
+      collected.add(ta)
     }
   }
 
-  // 再递归扫描所有 shadow root
-  scanRoot(document)
+  // 2. 递归扫所有 shadow root，从 document 开始
+  collectRedditEditors(document, collected, visited)
 
-  // 去重
-  const uniqueEditors = [...new Set(editors)]
-  return uniqueEditors
+  return Array.from(collected)
+}
+
+// Reddit 专用：使用 fixed 定位按钮，避免 shadow DOM 问题
+let redditButtonWrapper = null
+let redditPositionObserver = null
+
+function positionRedditButton(editor) {
+  if (!redditButtonWrapper) return
+
+  const rect = editor.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) {
+    redditButtonWrapper.style.display = 'none'
+    return
+  }
+
+  redditButtonWrapper.style.display = 'flex'
+  redditButtonWrapper.style.left = `${rect.right + 12}px`
+  redditButtonWrapper.style.top = `${rect.top + rect.height / 2 - 17}px`
+}
+
+function setupRedditButtonPosition(editor) {
+  if (redditPositionObserver) {
+    redditPositionObserver.disconnect()
+    redditPositionObserver = null
+  }
+
+  redditPositionObserver = new ResizeObserver(() => positionRedditButton(editor))
+  redditPositionObserver.observe(editor)
+
+  // 滚动时也更新位置
+  window.addEventListener('scroll', () => positionRedditButton(editor), true)
+  window.addEventListener('resize', () => positionRedditButton(editor))
+}
+
+function createRedditButtonWrapper(editor) {
+  // 移除已有
+  if (redditButtonWrapper) {
+    redditButtonWrapper.remove()
+  }
+
+  const wrapper = document.createElement('div')
+  wrapper.id = 'x-translator-btn-wrapper'
+  wrapper.dataset.xTranslatorRoot = 'true'
+  wrapper.style.cssText = `
+    position: fixed;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 999999;
+    pointer-events: auto;
+  `
+
+  const btn = createTranslateButton(editor)
+  wrapper.appendChild(btn)
+
+  document.body.appendChild(wrapper)
+  redditButtonWrapper = wrapper
+
+  setupRedditButtonPosition(editor)
+  positionRedditButton(editor)
 }
 
 let currentEditor = null
@@ -918,17 +967,10 @@ function injectButtonIntoToolbar(editor) {
   currentEditor = editor
 
   if (ACTIVE_SITE === 'reddit') {
-    const redditToolbar = findRedditToolbar(editor)
-    if (redditToolbar) {
-      // 注入 CSS 到 shadow root（如果工具栏在 shadow DOM 内）
-      const shadowRoot = redditToolbar.getRootNode?.()
-      if (shadowRoot instanceof ShadowRoot) {
-        injectStylesIntoShadowRoot(shadowRoot)
-      }
-      const btn = createTranslateButton(editor)
-      redditToolbar.insertBefore(btn, redditToolbar.firstChild)
-      return
-    }
+    // Reddit: 使用 fixed 定位按钮，挂在 document.body 上
+    // 这样可以完全避免 shadow DOM 的 CSS 隔离和 toolbar 查找问题
+    createRedditButtonWrapper(editor)
+    return
   }
 
   // 策略 1: 查找 [role="toolbar"]
@@ -1208,3 +1250,35 @@ observer.observe(document.body, {
 
 // 初始检查（页面已加载时）
 scanAllEditors(500)
+
+// Reddit: 轮询后备方案（MutationObserver 可能错过 shadow DOM 中的元素）
+if (ACTIVE_SITE === 'reddit') {
+  let redditPollTimer = null
+  let redditFoundEditors = new WeakSet()
+
+  function pollRedditEditors() {
+    const editors = scanRedditEditors()
+    let newEditorFound = false
+    for (const editor of editors) {
+      if (!boundEditors.has(editor) && !redditFoundEditors.has(editor)) {
+        redditFoundEditors.add(editor)
+        prepareEditor(editor, 100)
+        newEditorFound = true
+      }
+    }
+    // 如果找到了新编辑器，不需要继续高频轮询
+    // 但保留低频轮询以捕获后续新出现的编辑器
+  }
+
+  // 每 1.5 秒轮询一次
+  redditPollTimer = setInterval(pollRedditEditors, 1500)
+
+  // 同时监听 focus 事件：当用户点击到 textarea 时，立即尝试注入
+  document.addEventListener('focusin', (e) => {
+    if (e.target?.tagName === 'TEXTAREA' && ACTIVE_SITE === 'reddit') {
+      if (!boundEditors.has(e.target)) {
+        prepareEditor(e.target, 0)
+      }
+    }
+  }, true)
+}
