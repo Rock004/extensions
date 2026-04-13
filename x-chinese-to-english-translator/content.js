@@ -1,4 +1,28 @@
-// X 中文转英文翻译插件 - Content Script
+// X 中文转多语言翻译插件 - Content Script
+
+// 支持的目标语言
+const LANGUAGES = {
+  de: { name: 'Deutsch', nameZh: '德语', label: '🇩 德语' },
+  en: { name: 'English', nameZh: '英语', label: '🇬🇧 英语' },
+  es: { name: 'Español', nameZh: '西班牙语', label: '🇪 西班牙语' },
+  fr: { name: 'Français', nameZh: '法语', label: '🇫 法语' },
+  it: { name: 'Italiano', nameZh: '意大利语', label: '🇮 意大利语' },
+  ja: { name: '日本語', nameZh: '日语', label: '🇯 日语' },
+  ko: { name: '한국어', nameZh: '韩语', label: '🇰 韩语' },
+  nl: { name: 'Nederlands', nameZh: '荷兰语', label: '🇳 荷兰语' },
+  pl: { name: 'Polski', nameZh: '波兰语', label: '🇵 波兰语' },
+  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' },
+  tr: { name: 'Türkçe', nameZh: '土耳其语', label: '🇹 土耳其语' }
+}
+
+function getTargetLangInfo() {
+  return LANGUAGES[cachedConfig.targetLang] || LANGUAGES.en
+}
+
+function getTranslatePrompt() {
+  const lang = getTargetLangInfo()
+  return `请将以下中文翻译成自然流畅的${lang.name}。只输出翻译结果，不要任何解释或额外内容：\n\n`
+}
 
 const CHINESE_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/
 const TRANSLATOR_UI_SELECTOR = '[data-x-translator-root="true"]'
@@ -8,7 +32,7 @@ const SITE_CONFIG = {
       '[data-testid="tweetTextarea_0"], [contenteditable="true"][role="textbox"]'
   },
   reddit: {
-    // light DOM 选择器：匹配直接出现在文档流中的 textarea
+    // light DOM 选择器：匹配直接出现在文档流中的 textarea 和 contenteditable
     lightDomSelector: [
       'textarea[name="text"]',
       'textarea[placeholder*="comment" i]',
@@ -16,10 +40,12 @@ const SITE_CONFIG = {
       'textarea[placeholder*="post" i]',
       'textarea[placeholder*="title" i]',
       'textarea[aria-label*="comment" i]',
-      'textarea[aria-label*="reply" i]'
+      'textarea[aria-label*="reply" i]',
+      // Lexical 编辑器（Reddit 新版评论框）
+      'div[data-lexical-editor="true"]'
     ].join(', '),
-    // shadow DOM 内部选择器：只用简单选择器，因为 shadow root 内没有 faceplate-textarea-input 等宿主元素
-    shadowDomSelector: 'textarea:not([readonly]):not([disabled])'
+    // shadow DOM 内部选择器
+    shadowDomSelector: 'textarea:not([readonly]):not([disabled]), div[data-lexical-editor="true"]'
   },
   youtube: {
     editorSelector:
@@ -271,7 +297,7 @@ function shouldIgnoreEditor(editor) {
 
   if (ACTIVE_SITE === 'reddit') {
     const redditContainer = anchor?.closest(
-      'form, shreddit-comment-composer, shreddit-composer, faceplate-textarea-input, [slot*="composer"], [data-testid*="comment"], [data-testid*="composer"], [id*="comment"], [id*="composer"]'
+      'form, shreddit-comment-composer, shreddit-composer, faceplate-textarea-input, faceplate-textarea, [slot*="composer"], [data-testid*="comment"], [data-testid*="composer"], [id*="comment"], [id*="composer"], div[data-lexical-editor="true"]'
     )
 
     if (
@@ -512,9 +538,28 @@ function setEditorText(editor, text) {
     return
   }
 
-  // ====== contentEditable 路径（X/Twitter）======
+  // ====== contentEditable 路径（X/YouTube/Reddit div[role=textbox]）======
   editor.focus()
   cleanupInjectedUi(editor)
+
+  // 检查是否是简单 contentEditable（Reddit 的 div[role="textbox"]）
+  const innerSpans = editor.querySelectorAll('span')
+  const isSimpleEditor = !editor.querySelector('[data-testid*="tweetTextarea"]')
+    && innerSpans.length <= 2
+
+  if (isSimpleEditor) {
+    // Lexical 编辑器：execCommand 有效，但需要足够的延迟让 focus 生效
+    editor.focus()
+
+    // 使用 requestAnimationFrame + 微任务 确保 focus 完全生效
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.execCommand('selectAll', false, null)
+        document.execCommand('insertText', false, text)
+      })
+    })
+    return
+  }
 
   // 优先在现有文本节点上原位替换，尽量不破坏 X 内部编辑状态
   replaceEditorTextPreservingNodes(editor, text)
@@ -567,17 +612,21 @@ function setEditorText(editor, text) {
 }
 
 function getTranslateButtonMarkup(state) {
-  const labels = {
-    idle: '中→EN',
-    ready: '翻成英文',
-    loading: '翻译中',
-    done: '已完成'
+  const lang = getTargetLangInfo()
+  const langUpper = (cachedConfig.targetLang || 'en').toUpperCase()
+  const langCode = langUpper.replace(/\s+/g, '').slice(0, 2)
+
+  const texts = {
+    ready: `将中文翻译为 <span class="x-translator-btn__lang-code">${langCode}</span> ${lang.nameZh}`,
+    idle: `将中文翻译为 <span class="x-translator-btn__lang-code">${langCode}</span> ${lang.nameZh}`,
+    loading: '翻译中...',
+    done: '翻译完成'
   }
 
   const icons = {
-    idle: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h10M9 4v2m-3 12 3-3m0 0 3 3m-3-3 4-4m7-5-4 10m0 0-1.5 4m1.5-4h4m-4 0-4-10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    idle: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 4l-2 4m0 0l2 4m-2-4h6M8 20l2-4m0 0l-2-4m2 4H2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     ready:
-      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12h16M12 4l8 8-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 4l-2 4m0 0l2 4m-2-4h6M8 20l2-4m0 0l-2-4m2 4H2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     loading:
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v4m0 10v4m9-9h-4M7 12H3m15.364 6.364-2.828-2.828M8.464 8.464 5.636 5.636m12.728 0-2.828 2.828M8.464 15.536l-2.828 2.828" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     done: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12.5 9.5 17 19 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -585,13 +634,14 @@ function getTranslateButtonMarkup(state) {
 
   return `
     <span class="x-translator-btn__icon" aria-hidden="true">${icons[state] || icons.idle}</span>
-    <span class="x-translator-btn__label">${labels[state] || labels.idle}</span>
+    <span class="x-translator-btn__label">${texts[state] || texts.idle}</span>
   `
 }
 
 function setButtonState(btn, state) {
+  const lang = getTargetLangInfo()
   const titles = {
-    idle: '将中文翻译为英文',
+    idle: `将中文翻译为${lang.name}`,
     ready: '检测到中文，点击翻译',
     loading: '正在翻译，请稍候',
     done: '翻译完成，可继续编辑'
@@ -623,9 +673,6 @@ function flashButtonDone(editor) {
     syncButtonState(editor)
   }, 1400)
 }
-
-// 翻译提示词
-const TRANSLATE_PROMPT = `请将以下中文翻译成自然流畅的英文。只输出翻译结果，不要任何解释或额外内容：\n\n`
 
 // 调用翻译 API
 async function translateText(text) {
@@ -666,7 +713,7 @@ async function callAnthropicAPI(url, apiKey, model, text) {
       messages: [
         {
           role: 'user',
-          content: TRANSLATE_PROMPT + text
+          content: getTranslatePrompt() + text
         }
       ]
     })
@@ -700,7 +747,7 @@ async function callOpenAICompatibleAPI(url, apiKey, model, text) {
       messages: [
         {
           role: 'user',
-          content: TRANSLATE_PROMPT + text
+          content: getTranslatePrompt() + text
         }
       ]
     })
@@ -727,6 +774,7 @@ let cachedConfig = {
   apiKey: '',
   apiUrl: '',
   model: '',
+  targetLang: 'en',
   autoTranslate: false
 }
 
@@ -754,12 +802,14 @@ async function initConfig() {
     'apiKey',
     'apiUrl',
     'model',
+    'targetLang',
     'autoTranslate'
   ])
   if (result.provider) cachedConfig.provider = result.provider
   if (result.apiKey) cachedConfig.apiKey = result.apiKey
   if (result.apiUrl) cachedConfig.apiUrl = result.apiUrl
   if (result.model) cachedConfig.model = result.model
+  if (result.targetLang) cachedConfig.targetLang = result.targetLang
   if (result.autoTranslate !== undefined)
     cachedConfig.autoTranslate = result.autoTranslate
 }
@@ -776,6 +826,7 @@ if (
       if (changes.apiKey) cachedConfig.apiKey = changes.apiKey.newValue
       if (changes.apiUrl) cachedConfig.apiUrl = changes.apiUrl.newValue
       if (changes.model) cachedConfig.model = changes.model.newValue
+      if (changes.targetLang) cachedConfig.targetLang = changes.targetLang.newValue
       if (changes.autoTranslate !== undefined)
         cachedConfig.autoTranslate = changes.autoTranslate.newValue
     }
@@ -823,7 +874,8 @@ async function doTranslate(editor, source) {
       lastTranslatedSourceByEditor.set(editor, trimmedText)
       setEditorText(editor, translated.trim())
       didTranslate = true
-      showNotification('✓ 翻译完成', 'success')
+      const lang = getTargetLangInfo()
+      showNotification(`✓ 翻译为${lang.name}完成`, 'success')
     } else {
       showNotification('翻译结果为空，请重试', 'error')
     }
@@ -1305,29 +1357,34 @@ if (ACTIVE_SITE === 'reddit') {
   // 每 1.5 秒轮询一次
   redditPollTimer = setInterval(pollRedditEditors, 1500)
 
-  // 【最可靠的路径】监听 focusin 事件：当用户点击 textarea 时，立即注入
-  // 这是最可靠的，因为用户必须点击才能输入，此时 shadow DOM 一定已渲染
+  // 【最可靠的路径】监听 focusin 事件：当用户点击编辑器时，立即注入
   document.addEventListener(
     'focusin',
     (e) => {
-      if (!e.target || e.target.tagName !== 'TEXTAREA') return
-      const ta = e.target
-      if (boundEditors.has(ta)) return
-      if (shouldIgnoreEditor(ta)) return
-      prepareEditor(ta, 0)
+      if (!e.target) return
+      const el = e.target
+      if (el.tagName === 'TEXTAREA' ||
+          (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox' && el.isContentEditable)) {
+        if (boundEditors.has(el)) return
+        if (shouldIgnoreEditor(el)) return
+        prepareEditor(el, 0)
+      }
     },
     true
   )
 
-  // 同时监听 input 事件（兜底：有些 textarea 可能在脚本执行时就已存在）
+  // 同时监听 input 事件（兜底）
   document.addEventListener(
     'input',
     (e) => {
-      if (!e.target || e.target.tagName !== 'TEXTAREA') return
-      const ta = e.target
-      if (boundEditors.has(ta)) return
-      if (shouldIgnoreEditor(ta)) return
-      prepareEditor(ta, 0)
+      if (!e.target) return
+      const el = e.target
+      if (el.tagName === 'TEXTAREA' ||
+          (el.tagName === 'DIV' && el.getAttribute('role') === 'textbox' && el.isContentEditable)) {
+        if (boundEditors.has(el)) return
+        if (shouldIgnoreEditor(el)) return
+        prepareEditor(el, 0)
+      }
     },
     true
   )

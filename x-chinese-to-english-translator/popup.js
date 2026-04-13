@@ -2,6 +2,7 @@ const apiKeyInput = document.getElementById('apiKey')
 const apiUrlInput = document.getElementById('apiUrl')
 const providerSelect = document.getElementById('provider')
 const modelSelect = document.getElementById('model')
+const targetLangSelect = document.getElementById('targetLang')
 const providerLabel = document.getElementById('providerLabel')
 const providerHint = document.getElementById('providerHint')
 const modelHint = document.getElementById('modelHint')
@@ -12,6 +13,22 @@ const toggleKey = document.getElementById('toggleKey')
 let statusTimer = null
 let customOpenAIUrl = ''
 let currentProvider = 'anthropic'
+let currentTargetLang = 'en'
+
+// 支持的目标语言
+const LANGUAGES = {
+  de: { name: 'Deutsch', nameZh: '德语', label: '🇩🇪 德语' },
+  en: { name: 'English', nameZh: '英语', label: '🇬🇧 英语' },
+  es: { name: 'Español', nameZh: '西班牙语', label: '🇪🇸 西班牙语' },
+  fr: { name: 'Français', nameZh: '法语', label: '🇫🇷 法语' },
+  it: { name: 'Italiano', nameZh: '意大利语', label: '🇮🇹 意大利语' },
+  ja: { name: '日本語', nameZh: '日语', label: '🇯🇵 日语' },
+  ko: { name: '한국어', nameZh: '韩语', label: '🇰🇷 韩语' },
+  nl: { name: 'Nederlands', nameZh: '荷兰语', label: '🇳 荷兰语' },
+  pl: { name: 'Polski', nameZh: '波兰语', label: '🇵🇱 波兰语' },
+  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' },
+  tr: { name: 'Türkçe', nameZh: '土耳其语', label: '🇹 土耳其语' }
+}
 
 // 各提供商配置
 const PROVIDERS = {
@@ -72,6 +89,17 @@ const PROVIDERS = {
   }
 }
 
+function populateLangOptions(selectedLang) {
+  targetLangSelect.innerHTML = Object.entries(LANGUAGES)
+    .map(
+      ([code, lang]) =>
+        `<option value="${code}">${lang.label} (${code.toUpperCase()})</option>`
+    )
+    .join('')
+  targetLangSelect.value = selectedLang || 'en'
+  currentTargetLang = selectedLang || 'en'
+}
+
 function populateModelOptions(provider, selectedModel) {
   const config = PROVIDERS[provider]
   const effectiveModel = config.models.includes(selectedModel)
@@ -88,11 +116,12 @@ function populateModelOptions(provider, selectedModel) {
 }
 
 function updateProviderUI(provider, options = {}) {
-  const { selectedModel = '', customApiUrl = '' } = options
+  const { selectedModel = '', customApiUrl = '', targetLang = 'en' } = options
   const config = PROVIDERS[provider]
+  const lang = LANGUAGES[targetLang] || LANGUAGES.en
 
   // 更新顶部品牌文案
-  providerLabel.textContent = `中文 → English · 由 ${config.brand} 驱动`
+  providerLabel.textContent = `中文 → ${lang.name} · 由 ${config.brand} 驱动`
 
   // 更新 key 提示
   apiKeyInput.placeholder = config.keyHint
@@ -129,7 +158,7 @@ function isValidApiUrl(url) {
 
 // 加载已保存的配置
 chrome.storage.sync.get(
-  ['apiKey', 'provider', 'apiUrl', 'model', 'autoTranslate'],
+  ['apiKey', 'provider', 'apiUrl', 'model', 'autoTranslate', 'targetLang'],
   (result) => {
     if (chrome.runtime.lastError) {
       showStatus(`读取设置失败: ${chrome.runtime.lastError.message}`, 'error')
@@ -138,18 +167,22 @@ chrome.storage.sync.get(
 
     const provider = result.provider || 'anthropic'
     const savedModel = result.model || PROVIDERS[provider].defaultModel
+    const savedLang = result.targetLang || 'en'
     if (provider === 'openai' && result.apiUrl) {
       customOpenAIUrl = result.apiUrl
     }
     currentProvider = provider
+    currentTargetLang = savedLang
 
     providerSelect.value = provider
     if (result.apiKey) apiKeyInput.value = result.apiKey
     if (result.autoTranslate !== undefined)
       autoTranslateToggle.checked = result.autoTranslate
+    populateLangOptions(savedLang)
     updateProviderUI(provider, {
       selectedModel: savedModel,
-      customApiUrl: result.apiUrl || ''
+      customApiUrl: result.apiUrl || '',
+      targetLang: savedLang
     })
   }
 )
@@ -161,7 +194,8 @@ providerSelect.addEventListener('change', (e) => {
   }
 
   updateProviderUI(e.target.value, {
-    customApiUrl: e.target.value === 'openai' ? customOpenAIUrl : ''
+    customApiUrl: e.target.value === 'openai' ? customOpenAIUrl : '',
+    targetLang: currentTargetLang
   })
   currentProvider = e.target.value
 })
@@ -197,6 +231,7 @@ saveBtn.addEventListener('click', () => {
     apiKey: key,
     provider: provider,
     model: modelSelect.value || config.defaultModel,
+    targetLang: targetLangSelect.value || 'en',
     autoTranslate: autoTranslateToggle.checked
   }
 

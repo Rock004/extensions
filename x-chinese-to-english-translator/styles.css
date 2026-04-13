@@ -5,81 +5,89 @@
   -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  min-width: 96px;
-  height: 34px;
-  padding: 0 14px;
+  min-width: auto;
+  height: auto;
+  padding: 6px 6px 6px 5px;
   margin-right: 8px;
-  border: 1px solid rgba(125, 211, 252, 0.24);
+  border: none;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at top, rgba(96, 165, 250, 0.18), transparent 62%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88));
-  color: #dbeafe;
+  background: #4b5563;
+  color: #f3f4f6;
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
+  font-weight: 600;
+  line-height: 1.3;
   letter-spacing: 0.01em;
   white-space: nowrap;
   cursor: pointer;
   flex: 0 0 auto;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(10px);
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease,
-    background 0.18s ease,
-    color 0.18s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
 #x-translator-btn:hover {
-  transform: translateY(-1px);
-  border-color: rgba(125, 211, 252, 0.4);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 #x-translator-btn:active {
-  transform: translateY(0) scale(0.98);
+  transform: scale(0.98);
 }
 
 #x-translator-btn[data-state="ready"] {
-  border-color: rgba(96, 165, 250, 0.48);
-  background: linear-gradient(135deg, #1d9bf0, #2970ff);
-  color: #ffffff;
-  box-shadow: 0 10px 26px rgba(29, 155, 240, 0.28);
+  background: #4b5563;
+}
+
+#x-translator-btn[data-state="idle"] {
+  background: #4b5563;
 }
 
 #x-translator-btn[data-state="loading"] {
-  border-color: rgba(125, 211, 252, 0.4);
-  background: linear-gradient(135deg, #1e40af, #2563eb);
-  color: #ffffff;
+  background: #4338ca;
   cursor: progress;
   animation: pulse 1s infinite;
 }
 
 #x-translator-btn[data-state="done"] {
-  border-color: rgba(74, 222, 128, 0.42);
-  background: linear-gradient(135deg, #14b86a, #0f9f5f);
-  color: #ffffff;
-  box-shadow: 0 10px 26px rgba(20, 184, 106, 0.28);
+  background: #065f46;
 }
 
 #x-translator-btn .x-translator-btn__icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.15);
   flex: 0 0 auto;
 }
 
 #x-translator-btn .x-translator-btn__label {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e5e7eb;
+  line-height: 1.3;
+}
+
+#x-translator-btn .x-translator-btn__lang-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin: 0 1px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
 #x-translator-btn svg {
@@ -87,7 +95,7 @@
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.7; }
+  0%, 100% { opacity: 0.8; }
   50% { opacity: 1; }
 }
 
