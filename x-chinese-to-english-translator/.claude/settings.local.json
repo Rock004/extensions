@@ -3,7 +3,16 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:dev.to)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(node:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh release:*)",
+      "Bash(git tag:*)"
     ]
   }
 }
