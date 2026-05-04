@@ -11,8 +11,7 @@ const LANGUAGES = {
   ko: { name: '한국어', nameZh: '韩语', label: '🇰 韩语' },
   nl: { name: 'Nederlands', nameZh: '荷兰语', label: '🇳 荷兰语' },
   pl: { name: 'Polski', nameZh: '波兰语', label: '🇵 波兰语' },
-  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' },
-  tr: { name: 'Türkçe', nameZh: '土耳其语', label: '🇹 土耳其语' }
+  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' }
 }
 
 function getTargetLangInfo() {
@@ -200,6 +199,7 @@ let isTranslating = false
 let autoTranslateTimer = null
 let buttonDoneTimer = null
 let fullScanTimer = null
+let floatingButtonCleanup = null
 const lastTranslatedSourceByEditor = new WeakMap()
 
 // 各提供商的 API 配置
@@ -342,6 +342,9 @@ function cleanupInjectedUi(editor) {
   editor
     .querySelectorAll(TRANSLATOR_UI_SELECTOR)
     .forEach((node) => node.remove())
+
+  // 也清理浮动按钮（如果存在）
+  cleanupFloatingButton()
 }
 
 function getTextNodes(editor) {
@@ -1123,45 +1126,68 @@ function findComposeToolbar(editor) {
 
 // 浮动按钮方案
 function attachFloatingButton(editor) {
-  // 移除已有的浮动按钮
-  const existing = document.getElementById('x-translator-float')
-  if (existing) existing.remove()
+  // 清理旧的浮动按钮
+  cleanupFloatingButton()
 
   const wrapper = document.createElement('div')
   wrapper.id = 'x-translator-float'
   wrapper.dataset.xTranslatorRoot = 'true'
   wrapper.setAttribute('contenteditable', 'false')
+  // 使用 fixed 定位，紧贴编辑器右边，z-index 高于内容
   wrapper.style.cssText = `
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 9999;
+    position: fixed;
+    z-index: 99999;
+    pointer-events: auto;
   `
 
   const btn = createTranslateButton(editor)
   wrapper.appendChild(btn)
 
-  // 找到编辑器的相对容器
-  const container = findFloatingContainer(editor)
+  document.body.appendChild(wrapper)
 
-  if (
-    container &&
-    container.style.position !== 'relative' &&
-    container.style.position !== 'absolute'
-  ) {
-    container.style.position = 'relative'
+  // 定位并随滚动/缩放更新
+  updateFloatingButtonPosition(editor)
+  const onScrollResize = () => updateFloatingButtonPosition(editor)
+  window.addEventListener('scroll', onScrollResize, true)
+  window.addEventListener('resize', onScrollResize)
+
+  let resizeObserver = null
+  // 用 ResizeObserver 监听编辑器大小变化
+  if (window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => updateFloatingButtonPosition(editor))
+    resizeObserver.observe(editor)
   }
 
-  const targetContainer = container || editor.parentElement
-
-  // 如果容器在 shadow DOM 内，注入 CSS
-  const shadowRoot = targetContainer?.getRootNode?.()
-  if (shadowRoot instanceof ShadowRoot) {
-    injectStylesIntoShadowRoot(shadowRoot)
+  // 保存清理函数
+  floatingButtonCleanup = () => {
+    window.removeEventListener('scroll', onScrollResize, true)
+    window.removeEventListener('resize', onScrollResize)
+    if (resizeObserver) resizeObserver.disconnect()
+    const w = document.getElementById('x-translator-float')
+    if (w) w.remove()
+    floatingButtonCleanup = null
   }
+}
 
-  targetContainer.appendChild(wrapper)
+function cleanupFloatingButton() {
+  if (floatingButtonCleanup) {
+    floatingButtonCleanup()
+  }
+}
+
+function updateFloatingButtonPosition(editor) {
+  const wrapper = document.getElementById('x-translator-float')
+  if (!wrapper) return
+
+  const rect = editor.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) {
+    wrapper.style.display = 'none'
+    return
+  }
+  wrapper.style.display = 'flex'
+  // 按钮贴在编辑器右侧外部，垂直居中
+  wrapper.style.left = `${rect.right + 8}px`
+  wrapper.style.top = `${rect.top + rect.height / 2 - 17}px`
 }
 
 // 防抖自动翻译

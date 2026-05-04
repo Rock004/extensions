@@ -26,8 +26,7 @@ const LANGUAGES = {
   ko: { name: '한국어', nameZh: '韩语', label: '🇰🇷 韩语' },
   nl: { name: 'Nederlands', nameZh: '荷兰语', label: '🇳 荷兰语' },
   pl: { name: 'Polski', nameZh: '波兰语', label: '🇵🇱 波兰语' },
-  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' },
-  tr: { name: 'Türkçe', nameZh: '土耳其语', label: '🇹 土耳其语' }
+  ru: { name: 'Русский', nameZh: '俄语', label: '🇷🇺 俄语' }
 }
 
 // 各提供商配置
